@@ -1,0 +1,7 @@
+# Private Daten - niemals ins öffentliche Repo
+privat/
+*.pdf
+*.xlsx
+*.zip
+*.csv
+.DS_Store
