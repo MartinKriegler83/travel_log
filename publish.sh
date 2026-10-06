@@ -13,7 +13,7 @@ if [ "$(git remote get-url origin)" != "$REPO_URL" ]; then
   git remote set-url origin "$REPO_URL"
 fi
 git rm --cached --ignore-unmatch -q README.md
-git add index.html .gitignore publish.sh
+git add index.html globus.html fragen.html .gitignore publish.sh
 if git diff --cached --quiet; then echo "Nichts Neues zu veröffentlichen."; exit 0; fi
 git commit -m "$MSG"
 git push -u origin main
