@@ -295,13 +295,13 @@ function onLang(cb){segGroup('langSeg',v=>{lang=v;try{localStorage.setItem('flug
 </script>
 <script>
 const T={
-de:{pageTitle:'Globus',globeH:'Alle Flüge auf dem Globus',globeIntro:'Ziehen zum Drehen, Mausrad oder zwei Finger zum Zoomen. Jeder Bogen ist eine Strecke, die Stärke zeigt, wie oft ich sie geflogen bin.',
+de:{pageTitle:'Globus',globeH:'Alle Flüge auf dem Globus',globeIntro:'Ziehen zum Drehen, Mausrad oder zwei Finger zum Zoomen. Jeder Bogen ist eine Flugrichtung: Die Striche wandern vom Start zum Ziel, der Bogen wird zum Ziel hin kräftiger. Hin- und Rückflug sind zwei getrennte Bögen. Die Stärke zeigt, wie oft ich die Strecke geflogen bin.',
  spinOn:'Drehen',spinOff:'Anhalten',mostlyBiz:'überwiegend beruflich',mostlyPriv:'überwiegend privat',visitedCountry:'besuchtes Land',
- count:(f,r,a)=>`${f} Flüge · ${r} Strecken · ${a} Flughäfen`,routeTip:(b,p)=>`${b} beruflich · ${p} privat`,apTip:n=>`${n} Starts und Landungen`,
+ count:(f,r,a)=>`${f} Flüge · ${r} Strecken · ${a} Flughäfen`,routeTip:(b,p)=>`${b} beruflich · ${p} privat`,backTip:(n,a,b)=>`Gegenrichtung ${a} → ${b}: ${n}×`,apTip:n=>`${n} Starts und Landungen`,
  jump:'Springe zu:',noWebgl:'Dein Browser kann keine 3D-Grafik (WebGL) darstellen. Die flache Karte findest du auf der Übersicht.'},
-en:{pageTitle:'Globe',globeH:'All flights on the globe',globeIntro:'Drag to rotate, scroll or pinch to zoom. Each arc is a route; its weight shows how often I flew it.',
+en:{pageTitle:'Globe',globeH:'All flights on the globe',globeIntro:'Drag to rotate, scroll or pinch to zoom. Each arc is one direction: the dashes travel from origin to destination and the arc gets stronger towards the destination. Outbound and return are separate arcs. The weight shows how often I flew it.',
  spinOn:'Rotate',spinOff:'Pause',mostlyBiz:'mostly business',mostlyPriv:'mostly leisure',visitedCountry:'visited country',
- count:(f,r,a)=>`${f} flights · ${r} routes · ${a} airports`,routeTip:(b,p)=>`${b} business · ${p} leisure`,apTip:n=>`${n} take-offs and landings`,
+ count:(f,r,a)=>`${f} flights · ${r} routes · ${a} airports`,routeTip:(b,p)=>`${b} business · ${p} leisure`,backTip:(n,a,b)=>`Return ${a} → ${b}: ${n}×`,apTip:n=>`${n} take-offs and landings`,
  jump:'Jump to:',noWebgl:'Your browser cannot display 3D graphics (WebGL). The flat map is on the overview page.'}};
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const world=topojson.feature(WORLD,WORLD.objects.countries).features;
@@ -311,16 +311,24 @@ let G=null;
 const JUMPS=[['Wien','Vienna',48.2,16.4,1.6],['Europa','Europe',50,10,1.2],['Nordamerika','North America',40,-95,1.8],['Indien','India',22,78,1.8],['Ostasien','East Asia',32,118,1.9],['Australien','Australia',-28,140,2]];
 function data(){
   const fl=P.filter(f=>(st.reason==='all'||(st.reason==='biz')===f.biz)&&(st.dec==='all'||Math.floor(f.y/10)*10==st.dec));
-  const rc=new Map();for(const f of fl){const [a,b]=[f.f,f.t].sort();const k=a+'-'+b;const o=rc.get(k)||{a,b,n:0,biz:0};o.n++;o.biz+=f.biz;rc.set(k,o)}
+  // Gerichtete Strecken: A→B und B→A getrennt, damit die Animation die Flugrichtung zeigt
+  const rc=new Map();for(const f of fl){if(f.f===f.t)continue;const k=f.f+'>'+f.t;const o=rc.get(k)||{a:f.f,b:f.t,n:0,biz:0};o.n++;o.biz+=f.biz;rc.set(k,o)}
+  const routes=[...rc.values()];
+  for(const r of routes){const back=rc.get(r.b+'>'+r.a);r.back=back?back.n:0;r.both=!!back;r.d=gdist(AP[r.a],AP[r.b])}
+  const pairs=new Set(routes.map(r=>[r.a,r.b].sort().join('-'))).size;
   const ac=new Map();for(const f of fl){ac.set(f.f,(ac.get(f.f)||0)+1);ac.set(f.t,(ac.get(f.t)||0)+1)}
-  return {fl,routes:[...rc.values()].filter(r=>r.a!==r.b),aps:[...ac.entries()].map(([c,n])=>({...AP[c],n}))};
+  return {fl,routes,pairs,aps:[...ac.entries()].map(([c,n])=>({...AP[c],n}))};
 }
+function fade(c,a){const m=/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(c);return m?`rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${a})`:c}
+function gdist(p,q){const r=Math.PI/180;const s=Math.sin((q.lat-p.lat)*r/2)**2+Math.cos(p.lat*r)*Math.cos(q.lat*r)*Math.sin((q.lon-p.lon)*r/2)**2;return 2*Math.asin(Math.min(1,Math.sqrt(s)))}
+// Hin- und Rückrichtung bekommen unterschiedlich hohe Bögen (alphabetisch erste Richtung flacher), damit beide sichtbar sind
+const arcAlt=r=>{const base=0.18*r.d+0.004;if(!r.both)return base;return base*(r.a<r.b?0.78:1.22)};
 function draw(){
   drawCommon();
   const sel=el('gDecade');const cur=st.dec;sel.innerHTML=`<option value="all">${t('allYears')}</option>`+[1980,1990,2000,2010,2020].map(d=>`<option value="${d}">${t('dec')(d)}</option>`).join('');sel.value=cur;
   el('gJump').innerHTML=`<span class="small">${t('jump')}</span>`+JUMPS.map((j,i)=>`<button class="chip jump" data-j="${i}">${lang==='de'?j[0]:j[1]}</button>`).join('');
   const box=el('globe');const w=box.clientWidth;const h=Math.round(Math.min(innerHeight*0.78,Math.max(380,w*0.75)));
-  const {fl,routes,aps}=data();
+  const {fl,routes,pairs,aps}=data();
   const maxN=Math.max(1,...routes.map(r=>r.n));const maxA=Math.max(1,...aps.map(a=>a.n));
   const cBiz=css('--biz'),cPriv=css('--priv'),cInk=css('--ink'),cStrip=css('--strip');
   if(!G){
@@ -331,7 +339,7 @@ function draw(){
     G.controls().autoRotate=true;G.controls().autoRotateSpeed=0.35;G.controls().enableDamping=true;
     G.onArcHover(r=>{box.style.cursor=r?'pointer':''}).onPointHover(a=>{box.style.cursor=a?'pointer':''});
     box.addEventListener('pointermove',e=>{lastE=e});
-    G.onArcHover(r=>{if(r&&lastE)showTip(lastE,`<b>${r.n}× ${r.a} – ${r.b}</b>${esc(cityN(AP[r.a]))} – ${esc(cityN(AP[r.b]))}<br><span class="t2">${t('routeTip')(r.biz,r.n-r.biz)}</span>`);else hideTip()})
+    G.onArcHover(r=>{if(r&&lastE)showTip(lastE,`<b>${r.n}× ${r.a} → ${r.b}</b>${esc(cityN(AP[r.a]))} → ${esc(cityN(AP[r.b]))}<br><span class="t2">${t('routeTip')(r.biz,r.n-r.biz)}${r.back?'<br>'+t('backTip')(r.back,r.b,r.a):''}</span>`);else hideTip()})
      .onPointHover(a=>{if(a&&lastE)showTip(lastE,`<b>${a.c} · ${esc(cityN(a))}</b>${esc(lang==='de'?a.land:a.land_en)}<br><span class="t2">${t('apTip')(a.n)}</span>`);else hideTip()});
     box.addEventListener('pointerdown',()=>{G.controls().autoRotate=false;setSpin(false)});
   }
@@ -340,12 +348,12 @@ function draw(){
   G.atmosphereColor(css('--biz'));
   G.polygonsData(world).polygonAltitude(0.004).polygonCapColor(d=>visited.has(+d.id)?css('--land-v'):css('--land')).polygonSideColor(()=>'rgba(0,0,0,0)').polygonStrokeColor(()=>css('--land-line'));
   G.arcsData(routes).arcStartLat(r=>AP[r.a].lat).arcStartLng(r=>AP[r.a].lon).arcEndLat(r=>AP[r.b].lat).arcEndLng(r=>AP[r.b].lon)
-   .arcColor(r=>r.biz/r.n>=.5?cBiz:cPriv).arcStroke(r=>0.25+Math.sqrt(r.n/maxN)*1.1).arcAltitudeAutoScale(0.35)
-   .arcDashLength(0.5).arcDashGap(0.15).arcDashInitialGap(()=>Math.random()).arcDashAnimateTime(r=>4000+Math.random()*3000);
+   .arcColor(r=>{const c=r.biz/r.n>=.5?cBiz:cPriv;return [fade(c,.25),c]}).arcStroke(r=>0.06+Math.sqrt(r.n/maxN)*0.42).arcAltitude(arcAlt)
+   .arcDashLength(0.35).arcDashGap(0.25).arcDashInitialGap(()=>Math.random()).arcDashAnimateTime(r=>2500+r.d*1800+Math.random()*800);
   G.pointsData(aps).pointLat(a=>a.lat).pointLng(a=>a.lon).pointColor(a=>a.c==='VIE'?cStrip:cInk).pointAltitude(0.01).pointRadius(a=>0.18+Math.sqrt(a.n/maxA)*0.55).pointsMerge(false);
   const top=[...aps].sort((a,b)=>b.n-a.n).slice(0,14);
   G.labelsData(top).labelLat(a=>a.lat).labelLng(a=>a.lon).labelText(a=>a.c).labelSize(0.55).labelDotRadius(0).labelColor(()=>cInk).labelResolution(2).labelAltitude(0.012);
-  el('gCount').textContent=t('count')(nf(fl.length),routes.length,aps.length);
+  el('gCount').textContent=t('count')(nf(fl.length),pairs,aps.length);
 }
 let lastE=null;
 function setSpin(on){st.spin=on;el('gSpin').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',(b.dataset.v==='on')===on));if(G)G.controls().autoRotate=on}
